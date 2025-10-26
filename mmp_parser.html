@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MMP Regex File Parser (with Copy & Export)</title>
+    <!-- Load Tailwind CSS from CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Google Font 'Inter' -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Apply the Inter font as the default */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center p-4">
+
+    <!-- Main container card -->
+    <div class="bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-2xl">
+        <h1 class="text-3xl font-bold text-center text-white mb-6">
+            MMP Regex Parser
+        </h1>
+
+        <p class="text-gray-400 mb-6 text-center">
+            This tool scans a <code class="bg-gray-700 px-1 rounded">.mmp</code> file directly
+            using Regular Expressions to find <code class="bg-gray-700 px-1 rounded">.mp3</code> filenames.
+        </p>
+
+        <div class="space-y-6">
+            <!-- MMP File Input -->
+            <div>
+                <label for="mmpFile" class="block text-sm font-medium text-gray-300 mb-2">
+                    Upload Binary <code class="bg-gray-700 px-1 rounded">.mmp</code> File
+                </label>
+                <!-- The 'accept=".mmp"' attribute ensures only .mmp files are shown in the picker. -->
+                <input type="file" id="mmpFile" accept=".mmp"
+                       class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4
+                              file:rounded-lg file:border-0 file:text-sm file:font-semibold
+                              file:bg-blue-600 file:text-white hover:file:bg-blue-700
+                              cursor-pointer rounded-lg border border-gray-600">
+                <!-- Status message for MMP file -->
+                <span id="mmpStatus" class="text-xs text-gray-500 mt-1 block"></span>
+            </div>
+
+            <!-- Parse Button -->
+            <button id="parseButton"
+                    class="w-full bg-green-600 text-white font-bold py-3 px-6 rounded-lg
+                           hover:bg-green-700 focus:outline-none focus:ring-2
+                           focus:ring-green-500 focus:ring-opacity-50 transition duration-150
+                           disabled:opacity-50 disabled:cursor-not-allowed">
+                Scan and Extract Filenames
+            </button>
+        </div>
+
+        <!-- Results Section (hidden by default) -->
+        <div id="resultsContainer" class="mt-8 hidden">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4">
+                <h2 class="text-2xl font-semibold text-white mb-3 sm:mb-0">
+                    Extracted Filenames
+                </h2>
+                <!-- Button Container -->
+                <div id="buttonContainer" class="flex space-x-2 hidden">
+                    <button id="copyButton"
+                            class="flex-1 sm:flex-none bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg
+                                   hover:bg-yellow-700 focus:outline-none focus:ring-2
+                                   focus:ring-yellow-500 focus:ring-opacity-50 transition duration-150">
+                        Copy List
+                    </button>
+                    <button id="exportButton"
+                            class="flex-1 sm:flex-none bg-blue-600 text-white font-bold py-2 px-4 rounded-lg
+                                   hover:bg-blue-700 focus:outline-none focus:ring-2
+                                   focus:ring-blue-500 focus:ring-opacity-50 transition duration-150">
+                        Export to .m3u8
+                    </button>
+                </div>
+            </div>
+            
+            <div id="resultsStatus" class="text-sm text-gray-400 mb-4"></div>
+            
+            <!-- Numbered List -->
+            <ul id="resultsList"
+                class="bg-gray-900 rounded-lg border border-gray-700 max-h-60 overflow-y-auto
+                       divide-y divide-gray-700">
+                <!-- Result items will be dynamically injected here by JavaScript -->
+            </ul>
+
+            <!-- Output Text Area (hidden by default) -->
+            <div id="textareaContainer" class="mt-4 hidden">
+                <label for="resultsTextarea" class="block text-sm font-medium text-gray-300 mb-2">
+                    Copyable Output (no .mp3 extension)
+                </label>
+                <textarea id="resultsTextarea" readonly
+                          class="w-full h-40 bg-gray-900 text-gray-200 border border-gray-700
+                                 rounded-lg p-3 font-mono text-sm focus:ring-blue-500 focus:border-blue-500">
+                </textarea>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Custom Modal for Alerts -->
+    <div id="customModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-gray-700 rounded-lg shadow-xl p-6 w-full max-w-sm">
+            <p id="modalMessage" class="text-white text-center mb-4">Modal Message</p>
+            <button id="modalCloseButton" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-150">
+                OK
+            </button>
+        </div>
+    </div>
+
+
+    <script>
+        // Get references to all necessary DOM elements
+        const mmpFileInput = document.getElementById('mmpFile');
+        const parseButton = document.getElementById('parseButton');
+        const mmpStatus = document.getElementById('mmpStatus');
+
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsStatus = document.getElementById('resultsStatus');
+        const resultsList = document.getElementById('resultsList');
+        
+        const buttonContainer = document.getElementById('buttonContainer');
+        const exportButton = document.getElementById('exportButton');
+        const copyButton = document.getElementById('copyButton');
+        const textareaContainer = document.getElementById('textareaContainer');
+        const resultsTextarea = document.getElementById('resultsTextarea');
+
+        const customModal = document.getElementById('customModal');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalCloseButton = document.getElementById('modalCloseButton');
+
+        // Global variables
+        let mmpBuffer = null;
+        let extractedFilenames = []; // Store results (with .mp3) for export and list
+        let originalFilename = 'playlist'; // Stores the base filename of the MMP file
+
+        /**
+         * Reads a file as an ArrayBuffer.
+         */
+        function readFileAsArrayBuffer(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error);
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // Event listener for MMP file selection
+        mmpFileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                mmpStatus.textContent = '';
+                mmpBuffer = null;
+                originalFilename = 'playlist';
+                return;
+            }
+
+            try {
+                // Store the filename without the .mmp extension for the export name.
+                originalFilename = file.name.replace(/\.mmp$/i, '');
+
+                mmpStatus.textContent = 'Loading...';
+                mmpBuffer = await readFileAsArrayBuffer(file);
+                mmpStatus.textContent = `Loaded ${file.name} (${mmpBuffer.byteLength} bytes). Ready to scan.`;
+            } catch (error) {
+                mmpStatus.textContent = 'Error reading MMP file.';
+                console.error('MMP Error:', error);
+            }
+        });
+
+        /**
+         * "De-mangles" a "Spaced-ASCII" string.
+         * Turns "S a x y . m p 3" into "Saxy.mp3".
+         */
+        function demangleSpacedASCII(spacedText) {
+            let realText = '';
+            for (let i = 0; i < spacedText.length; i += 2) {
+                realText += spacedText[i];
+            }
+            return realText;
+        }
+
+        /**
+         * Extracts the filename from a full path.
+         */
+        function getFilenameFromPath(fullPath) {
+            if (!fullPath) return '';
+            const parts = fullPath.split(/[\\\/]/);
+            return parts[parts.length - 1]; // Get the last part
+        }
+
+        /**
+         * Main parsing logic
+         */
+        parseButton.addEventListener('click', () => {
+            if (mmpBuffer === null) {
+                showModal('Please upload the .mmp file before parsing.');
+                return;
+            }
+            
+            // Reset results
+            resultsContainer.classList.remove('hidden');
+            resultsList.innerHTML = ''; 
+            extractedFilenames = []; // Clear previous results
+            buttonContainer.classList.add('hidden'); // Hide buttons
+            textareaContainer.classList.add('hidden'); // Hide textarea
+            resultsTextarea.value = ''; // Clear textarea
+            resultsStatus.textContent = 'Scanning...';
+
+            let heuristicUsed = [];
+
+            // --- Heuristic 1: Spaced-ASCII (e.g., "S a x y . m p 3") ---
+            try {
+                const decoder = new TextDecoder('latin1');
+                const mmpText = decoder.decode(mmpBuffer);
+                // Regex to find "spaced" filenames, allowing for letters, numbers, spaces, and common symbols
+                const spacedRegex = /([\w\s\(\)\-'\.]+\. m p 3)/gi;
+                const matches = mmpText.match(spacedRegex);
+
+                if (matches) {
+                    heuristicUsed.push('Spaced-ASCII (latin1)');
+                    for (const match of matches) {
+                        const demangledPath = demangleSpacedASCII(match);
+                        const filename = getFilenameFromPath(demangledPath);
+                        if (filename) {
+                            extractedFilenames.push(filename);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Spaced-ASCII decoding/regex failed:', e);
+            }
+
+            // --- Heuristic 2: UTF-16LE (Standard 2-byte encoding) ---
+            try {
+                const decoder = new TextDecoder('utf-16le', { fatal: false });
+                const mmpText = decoder.decode(mmpBuffer);
+                // Regex for standard filenames
+                const utf16Regex = /([\w\s\(\)\-'\.]+\.mp3)/gi;
+                const matches = mmpText.match(utf16Regex);
+
+                if (matches) {
+                    heuristicUsed.push('UTF-16LE');
+                    for (const match of matches) {
+                        const filename = getFilenameFromPath(match);
+                        if (filename && !extractedFilenames.includes(filename)) {
+                            extractedFilenames.push(filename);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('UTF-16LE decoding/regex failed:', e);
+            }
+
+            // --- Display Results ---
+            if (extractedFilenames.length > 0) {
+                const finalHeuristic = heuristicUsed.length ? heuristicUsed.join(' + ') : 'Unknown';
+                resultsStatus.textContent = `Found ${extractedFilenames.length} filenames using heuristic(s): ${finalHeuristic}.`;
+                
+                // Populate the numbered list (with .mp3)
+                extractedFilenames.forEach((filename, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'p-3 text-sm text-gray-200';
+                    li.textContent = `${index + 1}. ${filename}`;
+                    resultsList.appendChild(li);
+                });
+                
+                // Create a new list *without* the .mp3 extension for the copyable text area
+                const filenamesNoExt = extractedFilenames.map(name => name.replace(/\.mp3$/i, ''));
+                
+                // Populate the text area (without .mp3)
+                resultsTextarea.value = filenamesNoExt.join('\n');
+
+                // Show the buttons and text area
+                buttonContainer.classList.remove('hidden'); 
+                textareaContainer.classList.remove('hidden');
+
+            } else {
+                resultsStatus.textContent = 'No .mp3 filenames were found inside the .mmp file.';
+                const li = document.createElement('li');
+                li.className = 'p-3 text-sm text-gray-500 italic';
+                li.textContent = 'No files found.';
+                resultsList.appendChild(li);
+                // Ensure buttons/textarea are hidden
+                buttonContainer.classList.add('hidden');
+                textareaContainer.classList.add('hidden');
+            }
+        });
+
+        /**
+         * Event listener for the Export Button
+         * This uses the stored 'originalFilename' for the download name.
+         */
+        exportButton.addEventListener('click', () => {
+            if (extractedFilenames.length === 0) {
+                showModal('No filenames to export.');
+                return;
+            }
+            const m3u8Content = '#EXTM3U\n' + extractedFilenames.join('\n');
+            const blob = new Blob([m3u8Content], { type: 'application/x-mpegURL' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            // This line ensures the .m3u8 file uses the same name as the original .mmp file:
+            a.download = `${originalFilename}.m3u8`; 
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+        });
+
+        /**
+         * Event listener for the Copy Button
+         * This copies directly from 'resultsTextarea', which has the clean names.
+         */
+        copyButton.addEventListener('click', () => {
+            if (resultsTextarea.value.length === 0) {
+                showModal('No text to copy.');
+                return;
+            }
+
+            try {
+                // Select the text
+                resultsTextarea.select();
+                // Use execCommand for broader compatibility (especially in iFrames)
+                document.execCommand('copy');
+                
+                // Deselect the text
+                window.getSelection().removeAllRanges();
+
+                // Provide user feedback
+                const originalText = copyButton.textContent;
+                copyButton.textContent = 'Copied!';
+                copyButton.classList.add('bg-green-500', 'hover:bg-green-600');
+                copyButton.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+
+                setTimeout(() => {
+                    copyButton.textContent = originalText;
+                    copyButton.classList.remove('bg-green-500', 'hover:bg-green-600');
+                    copyButton.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+                }, 2000);
+
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                showModal('Failed to copy text. Please try again.');
+            }
+        });
+
+        /**
+         * Simple modal for notifications instead of alert()
+         */
+        function showModal(message) {
+            modalMessage.textContent = message;
+            customModal.classList.remove('hidden');
+        }
+
+        // Event listener for closing the modal
+        modalCloseButton.addEventListener('click', () => {
+            customModal.classList.add('hidden');
+        });
+
+        // Close modal if user clicks on the backdrop
+        customModal.addEventListener('click', (event) => {
+            if (event.target === customModal) {
+                customModal.classList.add('hidden');
+            }
+        });
+
+    </script>
+</body>
+</html>
